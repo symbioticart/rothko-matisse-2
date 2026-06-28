@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rothko Matisse — Daily Portraits</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: #fafafa;
+      font-family: 'Manrope', sans-serif;
+      color: #1a1a1a;
+      overflow: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 20px 28px;
+    }
+
+    .artist {
+      position: fixed;
+      top: 20px;
+      left: 24px;
+      font-size: 12px;
+      font-weight: 300;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #000;
+      z-index: 100;
+    }
+
+    .stage {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      max-width: 100%;
+    }
+
+    .canvas-frame {
+      position: relative;
+      background: #000;
+      outline: 1px solid rgba(0,0,0,0.08);
+      box-shadow:
+        0 4px 20px rgba(0,0,0,0.06),
+        0 20px 60px rgba(0,0,0,0.08);
+      transform-origin: 0 0;
+      line-height: 0;
+    }
+    .canvas-wrap {
+      position: relative;
+      cursor: default;
+    }
+
+    #p5canvas {
+      display: block;
+    }
+
+    /* Invisible click zones for navigation */
+    .nav-zone {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 33.33%;
+      z-index: 10;
+      cursor: default;
+      transition: opacity 0.2s ease;
+    }
+    .nav-zone.prev {
+      left: 0;
+      cursor: w-resize;
+    }
+    .nav-zone.next {
+      right: 0;
+      cursor: e-resize;
+    }
+    .nav-zone.disabled {
+      cursor: default;
+      pointer-events: none;
+    }
+
+    /* Info line below canvas */
+    .info-line {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7.5px;
+      font-weight: 300;
+      color: #1a1a1a;
+      opacity: 0.25;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      line-height: 1;
+      text-align: center;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0 4px;
+    }
+
+    /* About link */
+    .about-link {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      font-size: 12px;
+      font-weight: 300;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #1a1a1a;
+      opacity: 0.35;
+      cursor: pointer;
+      z-index: 100;
+      border: none;
+      background: none;
+      font-family: 'Manrope', sans-serif;
+    }
+    .about-link:hover { opacity: 0.7; }
+
+    /* Overlay */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(250,250,250,0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      align-items: center;
+      justify-content: center;
+    }
+    .overlay.open { display: flex; }
+
+    .overlay-close {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+      font-size: 12px;
+      font-weight: 300;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #1a1a1a;
+      opacity: 0.35;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-family: 'Manrope', sans-serif;
+    }
+    .overlay-close:hover { opacity: 0.7; }
+
+    .overlay-content {
+      max-width: 600px;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+      padding: 40px 24px;
+      font-size: 12px;
+      font-weight: 300;
+      line-height: 1.8;
+      color: #1a1a1a;
+    }
+    .overlay-content h2 {
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      color: #000;
+    }
+    .overlay-content h3 {
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      color: #000;
+      opacity: 0.5;
+    }
+    .overlay-content p {
+      margin-bottom: 14px;
+      opacity: 0.7;
+    }
+    .overlay-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 11px;
+      opacity: 0.6;
+    }
+    .overlay-content th,
+    .overlay-content td {
+      text-align: left;
+      padding: 5px 8px 5px 0;
+      font-weight: 300;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+    }
+    .overlay-content th {
+      font-size: 8px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.5;
+    }
+    /* Hide scrollbar */
+    .overlay-content::-webkit-scrollbar { width: 0; }
+
+    /* Mobile */
+    @media (max-width: 640px) {
+      body {
+        padding: 12px 8px 16px;
+      }
+      .artist {
+        top: 12px;
+        left: 14px;
+        font-size: 10px;
+      }
+      .about-link {
+        top: 12px;
+        right: 14px;
+        font-size: 10px;
+      }
+      .overlay-close {
+        top: 12px;
+        right: 14px;
+        font-size: 10px;
+      }
+      .info-line {
+        font-size: 6px;
+      }
+      .canvas-frame {
+        box-shadow:
+          0 2px 10px rgba(0,0,0,0.05),
+          0 10px 30px rgba(0,0,0,0.07);
+      }
+      .stage {
+        gap: 8px;
+      }
+      .overlay-content {
+        padding: 32px 20px;
+        font-size: 11px;
+      }
+      .overlay-content h2 {
+        font-size: 10px;
+        margin-bottom: 20px;
+      }
+      .overlay-content h3 {
+        font-size: 10px;
+        margin-top: 24px;
+        margin-bottom: 10px;
+      }
+      .overlay-content table {
+        font-size: 10px;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .info-line {
+        font-size: 5px;
+      }
+    }
+
+    /* Silence veil — the work stops updating when the signal stops.
+       The last painting freezes; a void creeps in proportional to the gap. */
+    .silence {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      opacity: 0;
+      background:
+        radial-gradient(ellipse at 50% 50%, rgba(243,233,205,0) 30%, rgba(20,16,16,0.0) 100%);
+      transition: opacity 1.2s ease;
+    }
+
+    /* Status line — living / silent / dormant. Sits above the info line. */
+    .status-line {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 400;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      line-height: 1;
+      text-align: center;
+      opacity: 0.55;
+      color: #1a1a1a;
+    }
+    .status-line .dot {
+      display: inline-block;
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+      background: #1a1a1a;
+    }
+    .status-line.fresh   .dot { background: #2a9d8f; }
+    .status-line.stable  .dot { background: #b8a35a; }
+    .status-line.dormant .dot { background: #6b2737; }
+    .status-line.dormant { opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div class="artist">Nikolai Grigoriev</div>
+  <button class="about-link" id="aboutOpen">About</button>
+
+  <div class="overlay" id="overlay">
+    <button class="overlay-close" id="aboutClose">Close</button>
+    <div class="overlay-content">
+      <h2>Process</h2>
+      <p>This is a symbiotic artwork. The painting is not composed by the artist directly — it is generated from the artist's own physiological data, recorded continuously by a wearable biometric sensor (Oura Ring). The body is both the subject and the instrument. This is not a fixed picture but a living loop: each night the body writes the next day, the work syncs it the following morning, and the canvas opens on the most recent self. The image on screen is only the current frame of an ongoing relationship.</p>
+      <p>Fourteen physiological measurements are extracted from each 24-hour cycle, normalized, and mapped to independent visual parameters. The same body-state always produces the same painting — the process is deterministic; the seed is the body, not the date.</p>
+
+      <h3>Silence</h3>
+      <p>The loop can break. When the signal stops — the ring removed, the body still — the work does not pretend. The last day freezes, and a void grows into the canvas in proportion to the silence. A gap is not smoothed over; it is the most honest image the work can hold. The painting is built to register an ending, not to outlive one.</p>
+
+      <h3>Source Signal</h3>
+      <p>The sensor tracks the body during sleep and activity. From each day, the system reads: readiness score, sleep score, heart rate variability, resting heart rate, deep and REM sleep percentage, sleep efficiency, onset latency, restless periods, body temperature deviation, and workout intensity and frequency.</p>
+
+      <h3>Mood Index</h3>
+      <p>Three core metrics — readiness, sleep quality, and HRV — are averaged into a single value between 0 and 1. This index drives the whole composition: it shifts the boundary between the two palettes across the canvas, sets stroke density and layer count, and tilts the painting's axis. A high value opens the field to the bright palette (warm, airy); a low value sinks it into deep wine, bordeaux, and near-black. The boundary is spatial, not random — it moves with the body across the surface.</p>
+
+      <h3>Biometric-to-Visual Mapping</h3>
+      <table>
+        <tr><th>Body Signal</th><th>Visual Parameter</th></tr>
+        <tr><td>Readiness + Sleep + HRV</td><td>Palette probability, stroke density, layer count</td></tr>
+        <tr><td>Resting heart rate</td><td>Stroke length and weight</td></tr>
+        <tr><td>Heart rate variability</td><td>Spread between shortest and longest strokes</td></tr>
+        <tr><td>REM sleep</td><td>Curvature of gestural marks</td></tr>
+        <tr><td>Deep sleep</td><td>Tonal contrast</td></tr>
+        <tr><td>Sleep quality</td><td>Color saturation</td></tr>
+        <tr><td>Sleep efficiency</td><td>Compositional spread</td></tr>
+        <tr><td>Sleep onset latency</td><td>Impasto accent count</td></tr>
+        <tr><td>Body temperature</td><td>Hue rotation</td></tr>
+        <tr><td>Restless periods</td><td>Edge noise layer</td></tr>
+        <tr><td>Workout intensity</td><td>Drip trails and splatters</td></tr>
+      </table>
+
+      <h3>Construction</h3>
+      <p>Each painting is built in five sequential passes using simulated oil brushes. Broad underpainting sweeps establish the tonal field. Curved gestural strokes build up in layers — two on well-rested days, six on exhausted ones. Drip trails and micro-splatters accumulate from physical activity. Thick impasto accents mark quick sleep onset. On restless nights, a final scatter of fine marks appears at the edges.</p>
+
+    </div>
+  </div>
+  <div class="stage">
+    <div class="canvas-wrap">
+      <div class="canvas-frame" id="canvasFrame"></div>
+      <div class="silence" id="silence"></div>
+      <div class="nav-zone prev" id="zonePrev"></div>
+      <div class="nav-zone next" id="zoneNext"></div>
+    </div>
+    <div class="status-line" id="statusLine"></div>
+    <div class="info-line" id="infoLine"></div>
+  </div>
+
+  <!-- p5.js core -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.min.js"></script>
+  <!-- p5.oil library -->
+  <script src="p5.oil.js"></script>
+  <!-- painter -->
+  <script src="painter.js"></script>
+
+  <script>
+    // === Config: canvas dimensions (5:7 ratio) ===
+    const CANVAS_W = 980;
+    const CANVAS_H = 700;
+
+    // === State ===
+    let DATA = null;
+    let META = null;
+    let currentIdx = 0;
+    let p5Instance = null;
+    let pendingRepaint = false;
+
+    async function loadData() {
+      const resp = await fetch('data/daily-metrics.json', { cache: 'no-store' });
+      DATA = await resp.json();
+      META = DATA.meta || { status: 'stable', gapDays: 0, live: false };
+      // Default to the latest day — the body's present state, not a random memory.
+      currentIdx = Math.max(0, DATA.days.length - 1);
+    }
+
+    function fmtDate(d) {
+      const [y, m, day] = d.split('-');
+      const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+      return `${day} ${months[parseInt(m,10)-1]} ${y}`;
+    }
+
+    function renderMetrics(result) {
+      const day = DATA.days[currentIdx];
+      const mobile = window.innerWidth <= 640;
+      const parts = [
+        fmtDate(day.day),
+        `${currentIdx + 1}/${DATA.days.length}`,
+      ];
+      if (!mobile) {
+        parts.push(
+          `RDY ${day.readinessScore ?? '—'}`,
+          `SLP ${day.sleepScore ?? '—'}`,
+          `HRV ${day.hrv ?? '—'}`,
+          `RHR ${day.avgHeartRate?.toFixed(0) ?? '—'}`,
+          `DEEP ${day.deepSleepPct ? (day.deepSleepPct*100).toFixed(0) + '%' : '—'}`,
+          `REM ${day.remSleepPct ? (day.remSleepPct*100).toFixed(0) + '%' : '—'}`,
+          `EFF ${day.efficiency ? day.efficiency + '%' : '—'}`,
+          `T ${day.tempDeviation != null ? (day.tempDeviation >= 0 ? '+' : '') + day.tempDeviation.toFixed(2) : '—'}`,
+        );
+      }
+      document.getElementById('infoLine').textContent = parts.join(' · ');
+      updateStatus();
+    }
+
+    // The loop made visible: living signal, or the silence after it stops.
+    // The void only appears on the latest day — the frozen edge of the data.
+    function updateStatus() {
+      const meta = META || {};
+      const gap = meta.gapDays || 0;
+      const onLatest = currentIdx >= DATA.days.length - 1;
+      const status = meta.status || 'stable';
+
+      const el = document.getElementById('statusLine');
+      el.className = 'status-line ' + status;
+      let label;
+      if (!meta.live) {
+        label = 'ARCHIVE · NOT SYNCED';
+      } else if (status === 'fresh') {
+        label = `LIVE · BODY PRESENT · SYNCED ${meta.lastDataDay || ''}`;
+      } else if (status === 'stable') {
+        label = `LIVE · LAST SIGNAL ${meta.lastDataDay || ''} · ${gap}D AGO`;
+      } else {
+        label = `SILENCE · NO SIGNAL FOR ${gap} DAYS · LAST ${meta.lastDataDay || ''}`;
+      }
+      el.innerHTML = `<span class="dot"></span>${label}`;
+
+      // Void veil: grows only past a 1-day gap, only on the frozen latest day.
+      const sil = document.getElementById('silence');
+      let amt = 0;
+      if (onLatest && meta.live && gap > 1) {
+        amt = Math.min(0.82, (gap - 1) / 21);   // full void at ~22 days of silence
+      }
+      sil.style.background =
+        `radial-gradient(ellipse at 50% 45%, rgba(243,233,205,0) ${Math.round(40 - amt*30)}%, rgba(18,14,14,${(amt).toFixed(3)}) 100%)`;
+      sil.style.opacity = amt > 0 ? '1' : '0';
+    }
+
+    function updateNavZones() {
+      document.getElementById('zonePrev').classList.toggle('disabled', currentIdx <= 0);
+      document.getElementById('zoneNext').classList.toggle('disabled', currentIdx >= DATA.days.length - 1);
+    }
+
+    function navigate(delta) {
+      const next = currentIdx + delta;
+      if (next < 0 || next >= DATA.days.length) return;
+      currentIdx = next;
+      updateNavZones();
+      pendingRepaint = true;
+      if (p5Instance) p5Instance.redraw();
+    }
+
+    document.getElementById('zonePrev').addEventListener('click', () => navigate(-1));
+    document.getElementById('zoneNext').addEventListener('click', () => navigate(1));
+
+    // About overlay
+    document.getElementById('aboutOpen').addEventListener('click', () => {
+      document.getElementById('overlay').classList.add('open');
+    });
+    document.getElementById('aboutClose').addEventListener('click', () => {
+      document.getElementById('overlay').classList.remove('open');
+    });
+    document.getElementById('overlay').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') navigate(-1);
+      if (e.key === 'ArrowRight') navigate(1);
+    });
+
+    // Touch swipe navigation
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const canvasWrap = document.querySelector('.canvas-wrap');
+    canvasWrap.addEventListener('touchstart', (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    canvasWrap.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+        navigate(dx < 0 ? 1 : -1);
+      }
+    }, { passive: true });
+
+    async function main() {
+      await loadData();
+
+      // Scale canvas frame to fit viewport via CSS transform (preserves WebGL buffer)
+      function fitCanvas() {
+        const frame = document.getElementById('canvasFrame');
+        const mobile = window.innerWidth <= 640;
+        const maxH = window.innerHeight - (mobile ? 70 : 120);
+        const maxW = window.innerWidth - (mobile ? 16 : 80);
+        const scaleH = maxH / CANVAS_H;
+        const scaleW = maxW / CANVAS_W;
+        const s = Math.min(1, scaleH, scaleW);
+        frame.style.width = CANVAS_W + 'px';
+        frame.style.height = CANVAS_H + 'px';
+        frame.style.transform = `scale(${s})`;
+        const wrap = frame.parentElement;
+        wrap.style.width = (CANVAS_W * s) + 'px';
+        wrap.style.height = (CANVAS_H * s) + 'px';
+      }
+
+      p5Instance = new p5((p) => {
+        p.setup = function () {
+          const canvas = p.createCanvas(CANVAS_W, CANVAS_H, p.WEBGL2 || p.WEBGL);
+          canvas.parent('canvasFrame');
+          fitCanvas();
+          window.addEventListener('resize', () => {
+            fitCanvas();
+            if (DATA) renderMetrics();
+          });
+          p.noLoop();
+          pendingRepaint = true;
+        };
+        p.draw = function () {
+          if (!pendingRepaint || !DATA) return;
+          pendingRepaint = false;
+          const day = DATA.days[currentIdx];
+          const result = OuraPainter.paintDay(p, day, DATA.stats, CANVAS_W, CANVAS_H);
+          renderMetrics(result);
+        };
+      });
+
+      updateNavZones();
+    }
+
+    main();
+  </script>
+</body>
+</html>
