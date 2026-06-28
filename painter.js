@@ -140,7 +140,11 @@ function hslToRgb(h, s, l) {
 function modulateColor(rgb, m, moodT, bgL, jitter = 0) {
   let [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
 
-  // Saturation: sleep score scales saturation (floor at 0.55 so bad days still read)
+  // Saturation: the original Rothko-Matisse v1 compression. This is what gives
+  // the palette its noble, earthy register (terracotta, ochre, teal, dusty red)
+  // instead of flat neon — the muting IS the colour identity of the work. Sleep
+  // scales it, with a floor so bad days still read. (Death drains colour
+  // separately, as a fade of the whole canvas.)
   s *= (0.55 + 0.45 * m.sleep);
 
   // Lightness: mood shifts lightness slightly
@@ -350,7 +354,7 @@ function paintDay(p, day, data, W, H) {
 
   // === CONTAINMENT FRAME — every mark stays inside, with an empty margin ===
   const minDim = Math.min(W, H);
-  const MARGIN = minDim * 0.02;             // thin empty border kept clear of paint (~2%)
+  const MARGIN = minDim * 0.085;            // even breathing-room margin around the field (~8-9%)
   const xMax = W / 2 - MARGIN;              // safe half-extent (origin at centre)
   const yMax = H / 2 - MARGIN;
 
@@ -372,18 +376,20 @@ function paintDay(p, day, data, W, H) {
 
   // === THREE REGISTERS — an explicit scale hierarchy ===
   // The body speaks in three voices at once; the canvas keeps them distinct.
-  // FOUNDATION — few broad grounds; more and larger when the body is recovered.
-  const nLarge   = Math.round(7 + recovery * 9);                     // 7..16
-  const lenLarge = minDim * (0.26 + m.sleepHours * 0.22);           // expansive with sleep
-  const wLarge   = (20 + recovery * 26) * wScale;
-  // MODULATION — the waking middle: readiness + activity; calm heart → longer flow.
-  const nMedium   = Math.round(22 + m.readiness * 20 + m.workoutIntensity * 4);
-  const lenMedium = minDim * (0.10 + (1 - m.rhr) * 0.13);
-  const wMedium   = (8 + m.rhr * 11) * wScale;
-  // TREMOR — the agitation swarm: stress + depletion; small, sharp, and many.
-  const nSmall   = Math.round(40 + agitation * 80 + densityFactor * 50);
-  const lenSmall = minDim * (0.025 + m.remPct * 0.05);
-  const wSmall   = (2.5 + agitation * 4.5) * wScale;
+  // Scales are deliberately modest and counts high: the work reads as a dense
+  // network of small marks (v1 character), not a few large gestures.
+  // FOUNDATION — solid colour leaves; few, mid scale; larger when recovered.
+  const nLarge   = Math.round(6 + recovery * 9);                     // 6..15
+  const lenLarge = minDim * (0.216 + m.sleepHours * 0.192);        // 0.216..0.408 (+20%)
+  const wLarge   = (18 + recovery * 22) * wScale;
+  // MODULATION — curved gestures; the woven middle; calm heart → longer flow.
+  const nMedium   = Math.round(32 + m.readiness * 30 + m.workoutIntensity * 4);
+  const lenMedium = minDim * (0.085 + (1 - m.rhr) * 0.10);         // 0.085..0.185
+  const wMedium   = (8 + m.rhr * 10) * wScale;
+  // TREMOR — beaded dotted chains: the dense network. Many, thin, serpentine.
+  const nSmall   = Math.round(60 + agitation * 85 + densityFactor * 70);
+  const lenSmall = minDim * (0.08 + m.remPct * 0.10);             // 0.08..0.18 (×2)
+  const wSmall   = (3 + agitation * 4) * wScale;
 
   const curvatureMul  = 0.3 + m.remPct * 2.2;                        // dream sway (REM)
   const jitterAmp     = m.restless;                                  // restless position noise
@@ -451,7 +457,7 @@ function paintDay(p, day, data, W, H) {
   // set by sizeFactor(), width by this — so the two never move together, giving
   // each register marks that differ in both proportion and weight.
   function setWidth(baseW, fv) {
-    oil.strokeWeight(baseW * (0.6 + Math.abs(fv) * 0.55) * (0.7 + rng() * 0.6));
+    oil.strokeWeight(baseW * (0.5 + Math.abs(fv) * 0.6) * (0.45 + rng() * 1.1));
   }
 
   // Straight mark — used for foundation grounds, tremor, impasto.
@@ -493,28 +499,53 @@ function paintDay(p, day, data, W, H) {
       oil.line(pts[s].x, pts[s].y, pts[s+1].x, pts[s+1].y);
   }
 
-  // === REGISTER 1 — FOUNDATION: broad grounds, laid first ===
-  oil.pick('flatLarge');
+  // === MARK DIVERSITY ===
+  // The hand never repeats one touch. Each register draws from a pool of brushes
+  // and switches between straight, curved, and dabbed marks. How widely it varies
+  // is HRV: an adaptive (high-HRV) body produces a wider vocabulary of marks; a
+  // rigid (low-HRV) one repeats itself. Variability of the body = variability of
+  // the hand — the same principle that drives size variance.
+  const typeVar = 0.35 + m.hrv * 0.6;                    // 0.35..0.95
+  const FOUND_BRUSHES = ['filbertLarge', 'flatLarge', 'impasto'];
+  const MOD_BRUSHES   = ['filbertMedium', 'filbertLarge', 'knifeSmall'];
+  const TREM_BRUSHES  = ['knifeSmall', 'filbertMedium', 'knifeSmall'];
+
+  // Draw one mark: pick a brush from the pool and a shape, both varied by typeVar.
+  // `curlBase` is the register's baseline tendency to curve; REM (curvatureMul)
+  // and the per-mark draw push it either way. A short draw yields a stamped dab.
+  function paintMark(cx, cy, baseLen, baseW, pool, curlBase, moodBias) {
+    const bi = rng() < typeVar ? Math.floor(rng() * pool.length) : 0;
+    oil.pick(pool[bi]);
+    const r = rng();
+    if (r < 0.12 * typeVar) {
+      // dab — a short stamped touch, almost round
+      markStraight(cx, cy, baseLen * 0.28, baseW * 1.25, moodBias);
+    } else if (r < curlBase) {
+      markCurved(cx, cy, baseLen, baseW, moodBias);
+    } else {
+      markStraight(cx, cy, baseLen, baseW, moodBias);
+    }
+  }
+
+  // === REGISTER 1 — FOUNDATION: solid colour leaves, broad sweeps, thick dabs ===
   for (const c of innerCloud(nLarge, 7, placeX(), placeY())) {
     const [wx, wy] = warpVec(c.x, c.y, warpAmp);
-    markStraight(c.x + wx, c.y + wy, lenLarge, wLarge, 0);
+    paintMark(c.x + wx, c.y + wy, lenLarge, wLarge, FOUND_BRUSHES, 0.25, 0);
   }
 
-  // === REGISTER 2 — MODULATION: waking gestures, curved ===
+  // === REGISTER 2 — MODULATION: curved gestures woven with solid strokes ===
   const medHx = placeX(), medHy = placeY();
   for (let i = 0; i < nMedium; i++) {
-    oil.pick(i % 2 === 0 ? 'filbertLarge' : 'filbertMedium');
     const c = innerCloud(1, 1019 + i, medHx, medHy)[0];
     const [wx, wy] = warpVec(c.x, c.y, warpAmp);
-    markCurved(c.x + wx, c.y + wy, lenMedium, wMedium, 0);
+    paintMark(c.x + wx, c.y + wy, lenMedium, wMedium, MOD_BRUSHES, 0.7, 0);
   }
 
-  // === REGISTER 3 — TREMOR: the agitation swarm, small and sharp ===
-  oil.pick('knifeSmall');
-  for (const c of innerCloud(nSmall, 5003, xMax * 0.99, yMax * 0.99)) {
+  // === REGISTER 3 — TREMOR: beaded chains, threads, and small dabs ===
+  for (const c of innerCloud(nSmall, 5003, placeX(), placeY())) {
     const jx = (rng() - 0.5) * minDim * 0.04 * jitterAmp;
     const jy = (rng() - 0.5) * minDim * 0.04 * jitterAmp;
-    markStraight(c.x + jx, c.y + jy, lenSmall, wSmall, 0);
+    paintMark(c.x + jx, c.y + jy, lenSmall, wSmall, TREM_BRUSHES, 0.82, 0);
   }
 
   // === DRIPS & SPLATTERS — physical exertion thrown onto the surface ===
