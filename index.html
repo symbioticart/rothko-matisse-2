@@ -266,43 +266,10 @@
       }
     }
 
-    /* Silence veil — the work stops updating when the signal stops.
-       The last painting freezes; a void creeps in proportional to the gap. */
-    .silence {
-      position: absolute;
-      inset: 0;
-      z-index: 5;
-      pointer-events: none;
-      opacity: 0;
-      background:
-        radial-gradient(ellipse at 50% 50%, rgba(243,233,205,0) 30%, rgba(20,16,16,0.0) 100%);
-      transition: opacity 1.2s ease;
+    /* Death = fading: the frozen last day loses colour and dissolves. */
+    .canvas-frame {
+      transition: opacity 1.4s ease, filter 1.4s ease;
     }
-
-    /* Status line — living / silent / dormant. Sits above the info line. */
-    .status-line {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 8px;
-      font-weight: 400;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      line-height: 1;
-      text-align: center;
-      opacity: 0.55;
-      color: #1a1a1a;
-    }
-    .status-line .dot {
-      display: inline-block;
-      width: 5px; height: 5px;
-      border-radius: 50%;
-      margin-right: 6px;
-      vertical-align: middle;
-      background: #1a1a1a;
-    }
-    .status-line.fresh   .dot { background: #2a9d8f; }
-    .status-line.stable  .dot { background: #b8a35a; }
-    .status-line.dormant .dot { background: #6b2737; }
-    .status-line.dormant { opacity: 0.8; }
   </style>
 </head>
 <body>
@@ -315,9 +282,6 @@
       <h2>Process</h2>
       <p>This is a symbiotic artwork. The painting is not composed by the artist directly — it is generated from the artist's own physiological data, recorded continuously by a wearable biometric sensor (Oura Ring). The body is both the subject and the instrument. This is not a fixed picture but a living loop: each night the body writes the next day, the work syncs it the following morning, and the canvas opens on the most recent self. The image on screen is only the current frame of an ongoing relationship.</p>
       <p>Fourteen physiological measurements are extracted from each 24-hour cycle, normalized, and mapped to independent visual parameters. The same body-state always produces the same painting — the process is deterministic; the seed is the body, not the date.</p>
-
-      <h3>Silence</h3>
-      <p>The loop can break. When the signal stops — the ring removed, the body still — the work does not pretend. The last day freezes, and a void grows into the canvas in proportion to the silence. A gap is not smoothed over; it is the most honest image the work can hold. The painting is built to register an ending, not to outlive one.</p>
 
       <h3>Source Signal</h3>
       <p>The sensor tracks the body during sleep and activity. From each day, the system reads: readiness score, sleep score, heart rate variability, resting heart rate, deep and REM sleep percentage, sleep efficiency, onset latency, restless periods, body temperature deviation, and workout intensity and frequency.</p>
@@ -349,11 +313,9 @@
   <div class="stage">
     <div class="canvas-wrap">
       <div class="canvas-frame" id="canvasFrame"></div>
-      <div class="silence" id="silence"></div>
       <div class="nav-zone prev" id="zonePrev"></div>
       <div class="nav-zone next" id="zoneNext"></div>
     </div>
-    <div class="status-line" id="statusLine"></div>
     <div class="info-line" id="infoLine"></div>
   </div>
 
@@ -393,7 +355,14 @@
     function renderMetrics(result) {
       const day = DATA.days[currentIdx];
       const mobile = window.innerWidth <= 640;
+      const meta = META || {};
+      const gap = meta.gapDays || 0;
+      // Sync status as the first token of the data line — same font, same colour.
+      const statusToken = !meta.live ? 'ARCHIVE'
+        : meta.status === 'dormant' ? `SILENCE ${gap}D`
+        : 'LIVE';
       const parts = [
+        statusToken,
         fmtDate(day.day),
         `${currentIdx + 1}/${DATA.days.length}`,
       ];
@@ -410,40 +379,24 @@
         );
       }
       document.getElementById('infoLine').textContent = parts.join(' · ');
-      updateStatus();
+      updateFade();
     }
 
-    // The loop made visible: living signal, or the silence after it stops.
-    // The void only appears on the latest day — the frozen edge of the data.
-    function updateStatus() {
+    // Death = fading. When the signal stops, the frozen last day loses its
+    // colour, turns transparent, and finally disappears altogether.
+    function updateFade() {
       const meta = META || {};
       const gap = meta.gapDays || 0;
       const onLatest = currentIdx >= DATA.days.length - 1;
-      const status = meta.status || 'stable';
+      const frame = document.getElementById('canvasFrame');
 
-      const el = document.getElementById('statusLine');
-      el.className = 'status-line ' + status;
-      let label;
-      if (!meta.live) {
-        label = 'ARCHIVE · NOT SYNCED';
-      } else if (status === 'fresh') {
-        label = `LIVE · BODY PRESENT · SYNCED ${meta.lastDataDay || ''}`;
-      } else if (status === 'stable') {
-        label = `LIVE · LAST SIGNAL ${meta.lastDataDay || ''} · ${gap}D AGO`;
-      } else {
-        label = `SILENCE · NO SIGNAL FOR ${gap} DAYS · LAST ${meta.lastDataDay || ''}`;
-      }
-      el.innerHTML = `<span class="dot"></span>${label}`;
-
-      // Void veil: grows only past a 1-day gap, only on the frozen latest day.
-      const sil = document.getElementById('silence');
-      let amt = 0;
+      let gray = 0, alpha = 1;
       if (onLatest && meta.live && gap > 1) {
-        amt = Math.min(0.82, (gap - 1) / 21);   // full void at ~22 days of silence
+        gray  = Math.min(1, (gap - 1) / 13);        // colour gone by ~2 weeks
+        alpha = Math.max(0, 1 - (gap - 1) / 29);    // fully vanished by ~30 days
       }
-      sil.style.background =
-        `radial-gradient(ellipse at 50% 45%, rgba(243,233,205,0) ${Math.round(40 - amt*30)}%, rgba(18,14,14,${(amt).toFixed(3)}) 100%)`;
-      sil.style.opacity = amt > 0 ? '1' : '0';
+      frame.style.filter = gray > 0 ? `grayscale(${gray.toFixed(3)})` : 'none';
+      frame.style.opacity = alpha.toFixed(3);
     }
 
     function updateNavZones() {
@@ -530,7 +483,7 @@
           if (!pendingRepaint || !DATA) return;
           pendingRepaint = false;
           const day = DATA.days[currentIdx];
-          const result = OuraPainter.paintDay(p, day, DATA.stats, CANVAS_W, CANVAS_H);
+          const result = OuraPainter.paintDay(p, day, DATA, CANVAS_W, CANVAS_H);
           renderMetrics(result);
         };
       });

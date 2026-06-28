@@ -26,30 +26,63 @@ const ROTHKO = [
   [55, 20, 20],     // dark maroon
 ];
 
-// === METRIC NORMALIZATION ===
-function norm(value, min, max) {
-  if (value == null || isNaN(value)) return 0.5;
-  return Math.max(0, Math.min(1, (value - min) / (max - min)));
+// === PERSONAL-PERCENTILE NORMALIZATION ===
+// Each metric is normalized against the OWNER'S OWN distribution, not against
+// hardcoded population constants. A value of 0.9 means "higher than 90% of your
+// own days" — good/bad is measured against your own history, not abstract numbers.
+// This is what makes the work about THIS body. As the live dataset grows, a given
+// day's normalized state drifts with the body's evolving baseline (co-evolution).
+
+// Day-field names whose distribution drives the visual parameters.
+const PCT_FIELDS = [
+  'readinessScore', 'sleepScore', 'hrv', 'avgHeartRate', 'avgBreath',
+  'totalSleepHours', 'deepSleepPct', 'remSleepPct', 'efficiency',
+  'latency', 'restlessPeriods',
+];
+
+// Build sorted value arrays per metric from the owner's days. Cached on the
+// dataset object so it is computed once per load.
+function buildPercentiles(days) {
+  const dist = {};
+  for (const k of PCT_FIELDS) {
+    dist[k] = days
+      .map(d => d[k])
+      .filter(v => v != null && !isNaN(v))
+      .sort((a, b) => a - b);
+  }
+  return dist;
 }
 
-function normalizeMetrics(day, stats) {
+// Percentile rank of `v` within a sorted array → fraction in [0,1].
+// Empty/missing distribution or value falls back to 0.5 (neutral).
+function percentile(sorted, v) {
+  if (v == null || isNaN(v) || !sorted || sorted.length === 0) return 0.5;
+  if (sorted.length === 1) return 0.5;
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] <= v) lo = m + 1; else hi = m; }
+  return lo / sorted.length;
+}
+
+function normalizeMetrics(day, dist) {
+  dist = dist || {};
+  const P = (k) => percentile(dist[k], day[k]);
   return {
     // Core mood drivers
-    readiness: norm(day.readinessScore, 30, 95),
-    sleep: norm(day.sleepScore, 20, 75),
-    hrv: norm(day.hrv, 25, 100),
+    readiness: P('readinessScore'),
+    sleep: P('sleepScore'),
+    hrv: P('hrv'),
 
     // Physical intensity
-    rhr: norm(day.avgHeartRate, 50, 75),       // higher = more stressed
-    breath: norm(day.avgBreath, 12.5, 17),      // higher = more anxious
+    rhr: P('avgHeartRate'),       // higher percentile = higher HR = more stressed
+    breath: P('avgBreath'),        // higher = more anxious
 
     // Sleep architecture
-    sleepHours: norm(day.totalSleepHours, 4, 9),
-    deepPct: norm(day.deepSleepPct, 0.05, 0.22),
-    remPct: norm(day.remSleepPct, 0.10, 0.30),
-    efficiency: norm(day.efficiency, 60, 95),
-    latency: norm(day.latency, 120, 3600),      // higher = took long to fall asleep
-    restless: norm(day.restlessPeriods, 100, 450),
+    sleepHours: P('totalSleepHours'),
+    deepPct: P('deepSleepPct'),
+    remPct: P('remSleepPct'),
+    efficiency: P('efficiency'),
+    latency: P('latency'),         // higher = took long to fall asleep
+    restless: P('restlessPeriods'),
 
     // Temperature & activity
     temp: day.tempDeviation ?? 0,                // -1 to +1, keep as signed
@@ -216,8 +249,14 @@ function pickColorField(m, moodT, bgL, fv, rng) {
 }
 
 // === MAIN PAINTER ===
-function paintDay(p, day, stats, W, H) {
-  const m = normalizeMetrics(day, stats);
+// `data` is the full dataset { stats, days, meta }. Percentile distributions are
+// built from data.days once and cached on the object (data._dist).
+function paintDay(p, day, data, W, H) {
+  const days = (data && data.days) || [];
+  if (data && !data._dist) data._dist = buildPercentiles(days);
+  const dist = (data && data._dist) || buildPercentiles(days);
+
+  const m = normalizeMetrics(day, dist);
   const moodT = (m.readiness + m.sleep + m.hrv) / 3;
 
   // Seed RNG and oil textures from body only — identical body ⇒ identical canvas.
@@ -515,4 +554,4 @@ function paintDay(p, day, stats, W, H) {
 }
 
 // Expose globally
-window.OuraPainter = { paintDay, normalizeMetrics, hashMetrics };
+window.OuraPainter = { paintDay, normalizeMetrics, hashMetrics, buildPercentiles, percentile };
