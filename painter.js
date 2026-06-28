@@ -348,17 +348,46 @@ function paintDay(p, day, data, W, H) {
   const bgL = rgbToHsl(bg[0], bg[1], bg[2])[2];
   p.background(bg[0], bg[1], bg[2]);
 
-  // === DERIVED PARAMETERS (same semantics as before) ===
-  const densityFactor   = 1 - moodT;                                             // 0 airy → 1 dense
-  const baseLen         = 80 + (1 - m.rhr) * 200;                                // 80..280
-  const lengthVariance  = 0.15 + m.hrv * 0.95;                                   // 0.15..1.10
-  const baseWeight      = 7 + m.rhr * 18 + densityFactor * 16;                   // ~7..41
-  const curvatureMul    = 0.3 + m.remPct * 2.2;                                  // 0.3..2.5
-  const spreadMul       = 1.25 + (1 - m.efficiency) * 0.3;                       // 1.25..1.55
-  const layers          = 1 + Math.floor(1 + densityFactor * 4);                 // 2..6
-  const baseStrokeCount = Math.floor(12 + densityFactor * 26 + m.workoutIntensity * 1.5);
-  const splatterCount   = Math.floor(m.workoutIntensity * 10 + m.workoutCount * 6 + 12);
-  const jitterAmp       = m.restless;                                            // 0..1
+  // === CONTAINMENT FRAME — every mark stays inside, with an empty margin ===
+  const minDim = Math.min(W, H);
+  const MARGIN = minDim * 0.02;             // thin empty border kept clear of paint (~2%)
+  const xMax = W / 2 - MARGIN;              // safe half-extent (origin at centre)
+  const yMax = H / 2 - MARGIN;
+
+  // === COMPOSITE BODY STATES ===
+  const densityFactor = 1 - moodT;                                   // 0 airy → 1 dense
+  const recovery  = (m.hrv + m.deepPct + m.sleep) / 3;              // parasympathetic ground
+  const agitation = (m.restless + m.breath + (1 - m.efficiency) + m.rhr) / 4; // sympathetic surface
+
+  // HRV → SIZE VARIANCE. Heart-rate variability literally becomes mark-size
+  // variability: a high-HRV (adaptive, recovered) day spreads marks across a
+  // wide range of sizes; a low-HRV (rigid, stressed) day collapses them toward
+  // a single nervous scale. This is the engine of the painting's diversity.
+  const sizeVar = 0.30 + m.hrv * 1.50;                               // 0.30..1.80
+
+  // Weights are scaled to the drawing buffer (which is minDim px tall at the
+  // current pixel density) so marks keep their full body — thick, opaque, and
+  // saturated like v1 — instead of thinning out on a high-resolution canvas.
+  const wScale = minDim / 700;
+
+  // === THREE REGISTERS — an explicit scale hierarchy ===
+  // The body speaks in three voices at once; the canvas keeps them distinct.
+  // FOUNDATION — few broad grounds; more and larger when the body is recovered.
+  const nLarge   = Math.round(7 + recovery * 9);                     // 7..16
+  const lenLarge = minDim * (0.26 + m.sleepHours * 0.22);           // expansive with sleep
+  const wLarge   = (20 + recovery * 26) * wScale;
+  // MODULATION — the waking middle: readiness + activity; calm heart → longer flow.
+  const nMedium   = Math.round(22 + m.readiness * 20 + m.workoutIntensity * 4);
+  const lenMedium = minDim * (0.10 + (1 - m.rhr) * 0.13);
+  const wMedium   = (8 + m.rhr * 11) * wScale;
+  // TREMOR — the agitation swarm: stress + depletion; small, sharp, and many.
+  const nSmall   = Math.round(40 + agitation * 80 + densityFactor * 50);
+  const lenSmall = minDim * (0.025 + m.remPct * 0.05);
+  const wSmall   = (2.5 + agitation * 4.5) * wScale;
+
+  const curvatureMul  = 0.3 + m.remPct * 2.2;                        // dream sway (REM)
+  const jitterAmp     = m.restless;                                  // restless position noise
+  const splatterCount = Math.round(m.workoutIntensity * 9 + m.workoutCount * 5 + 6);
 
   // === HALTON POINT CLOUD ===
   // Returns exactly `count` points inside (W*spread) × (H*spread), centered
@@ -382,163 +411,143 @@ function paintDay(p, day, data, W, H) {
     return { pts, scale };
   }
 
-  // === PHASE 1: UNDERPAINTING — broad flat sweeps on a Halton cloud ===
-  oil.pick('flatLarge');
-  const under = haltonCloud(Math.max(8, Math.floor(baseStrokeCount * 0.5)), spreadMul);
-  for (const cell of under.pts) {
-    // Warp-displaced position — smooth offset tied to body state
-    const [wDx, wDy] = warpVec(cell.x, cell.y, under.scale * 1.0);
-    const wx = cell.x + wDx;
-    const wy = cell.y + wDy;
+  // === STROKE HELPERS (containment-aware) ===
+  const clampPt = (v, lim) => Math.max(-lim, Math.min(lim, v));
 
-    const fv = fieldVal(wx, wy);
-    const dv = detailVal(wx, wy);
-    const color = pickColorField(m, moodT, bgL, fv, rng);
-    oil.stroke(color[0], color[1], color[2]);
-
-    // Detail field de-uniformizes weight within a color zone
-    const weightMod = 0.80 + 0.45 * (0.5 - 0.5 * dv); // 0.80..1.25
-    oil.strokeWeight(baseWeight * (0.9 + Math.abs(fv) * 0.6) * weightMod);
-
-    const localAng = fieldRot(wx, wy);
-    const angle = composeAngle + localAng * fieldAngleMix * 0.5;
-    const lenMod = 0.70 + 0.65 * (0.5 + 0.5 * dv); // 0.70..1.35
-    const len = baseLen * (0.8 + Math.abs(fv) * lengthVariance) * lenMod;
-
-    // Residual restless jitter
-    const px = wx + (rng() - 0.5) * under.scale * 0.3 * jitterAmp;
-    const py = wy + (rng() - 0.5) * under.scale * 0.3 * jitterAmp;
-
-    oil.line(
-      px - Math.cos(angle) * len / 2, py - Math.sin(angle) * len / 2,
-      px + Math.cos(angle) * len / 2, py + Math.sin(angle) * len / 2
-    );
+  // Shrink a half-length so both endpoints stay inside the safe box. Marks near
+  // the border are naturally shortened, which keeps the empty margin clean and
+  // pulls the largest gestures toward the centre.
+  function fitHalf(px, py, ang, half) {
+    const cx = Math.abs(Math.cos(ang)), cy = Math.abs(Math.sin(ang));
+    const lx = cx > 1e-3 ? (xMax - Math.abs(px)) / cx : Infinity;
+    const ly = cy > 1e-3 ? (yMax - Math.abs(py)) / cy : Infinity;
+    return Math.max(0, Math.min(half, lx, ly));
   }
 
-  // === PHASE 2: MID-LAYER — curved filbert strokes on Halton clouds ===
-  // Each layer picks a different slice of the Halton sequence, so their
-  // clouds don't stack on top of each other. Since Halton(2,3) is aperiodic,
-  // any two index ranges look like independent blue-noise distributions.
-  for (let layer = 0; layer < layers; layer++) {
-    oil.pick(layer % 2 === 0 ? 'filbertLarge' : 'filbertMedium');
-    const layerCount = Math.floor(baseStrokeCount * (1 + layer * 0.25));
-    const startIdx = 1 + layer * 419; // prime-ish offset keeps slices distinct
-    const cloud = haltonCloud(layerCount, spreadMul, startIdx);
-
-    for (const cell of cloud.pts) {
-      // Warp displacement — each point migrates by ~1.1× its local spacing
-      const [wDx, wDy] = warpVec(cell.x, cell.y, cloud.scale * 1.1);
-      const wx = cell.x + wDx;
-      const wy = cell.y + wDy;
-
-      const fv = fieldVal(wx, wy);
-      const dv = detailVal(wx, wy);
-      const color = pickColorField(m, moodT, bgL, fv, rng);
-      oil.stroke(color[0], color[1], color[2]);
-
-      const weightMod = 0.75 + 0.55 * (0.5 - 0.5 * dv); // 0.75..1.30
-      oil.strokeWeight(
-        baseWeight * (0.55 + Math.abs(fv) * 0.8) * (1 - layer * 0.08) * weightMod
-      );
-
-      const localAng = fieldRot(wx, wy);
-      const angle = composeAngle + localAng * fieldAngleMix;
-      const lenMod = 0.65 + 0.75 * (0.5 + 0.5 * dv); // 0.65..1.40
-      const len = baseLen * (0.55 + Math.abs(fv) * lengthVariance) * lenMod;
-
-      const px = wx + (rng() - 0.5) * cloud.scale * 0.3 * jitterAmp;
-      const py = wy + (rng() - 0.5) * cloud.scale * 0.3 * jitterAmp;
-
-      // Serpentine multi-segment stroke that bends toward the local flow
-      const segments = 3 + Math.floor(curvatureMul * 3);
-      let x = px - Math.cos(angle) * len / 2;
-      let y = py - Math.sin(angle) * len / 2;
-      let curA = angle;
-      const segLen = len / segments;
-      const pts = [{ x, y }];
-      for (let s = 0; s < segments; s++) {
-        const targetA = fieldRot(x, y);
-        let dA = targetA - curA;
-        while (dA > Math.PI)  dA -= 2 * Math.PI;
-        while (dA < -Math.PI) dA += 2 * Math.PI;
-        curA += dA * curvatureMul * 0.18;
-        curA += (rng() - 0.5) * 0.35 * jitterAmp;
-        x += Math.cos(curA) * segLen;
-        y += Math.sin(curA) * segLen;
-        pts.push({ x, y });
-      }
-      for (let s = 0; s < pts.length - 1; s++) {
-        oil.line(pts[s].x, pts[s].y, pts[s+1].x, pts[s+1].y);
-      }
+  // Deterministic inner Halton cloud — centres within (±hx, ±hy). Callers inset
+  // these by ~half a mark's length so a full-size mark reaches the safe edge
+  // without being clamped: paint fills out to the margin instead of vignetting.
+  function innerCloud(count, startIdx, hx, hy) {
+    const pts = [];
+    for (let i = 0; i < count; i++) {
+      const n = startIdx + i;
+      pts.push({ x: (halton(n, 2) - 0.5) * 2 * hx, y: (halton(n, 3) - 0.5) * 2 * hy });
     }
+    return pts;
   }
 
-  // === PHASE 3: DRIPS & SPLATTERS — workout-driven, field-directed ===
+  // Centre-placement extent: marks fill nearly the whole safe box. Those near
+  // the border are shortened by fitHalf() — big gestures soften into smaller
+  // ones at the edges, which both frames the field and adds to the size variety.
+  const placeX = () => xMax * 0.94;
+  const placeY = () => yMax * 0.94;
+
+  // Per-mark length factor: even coverage, widened by HRV → genuine size variety
+  // inside EVERY register (some marks large, some small, within each group).
+  const sizeFactor = () => Math.max(0.25, 1 + (rng() - 0.5) * sizeVar);
+  const warpAmp = minDim * 0.03;
+
+  // Width varies independently of length: field value × per-mark draw. Length is
+  // set by sizeFactor(), width by this — so the two never move together, giving
+  // each register marks that differ in both proportion and weight.
+  function setWidth(baseW, fv) {
+    oil.strokeWeight(baseW * (0.6 + Math.abs(fv) * 0.55) * (0.7 + rng() * 0.6));
+  }
+
+  // Straight mark — used for foundation grounds, tremor, impasto.
+  function markStraight(cx0, cy0, baseLen, baseW, moodBias) {
+    const px = clampPt(cx0, xMax), py = clampPt(cy0, yMax);
+    const fv = fieldVal(px, py);
+    const color = pickColorField(m, Math.min(1, moodT + moodBias), bgL, fv, rng);
+    oil.stroke(color[0], color[1], color[2]);
+    setWidth(baseW, fv);
+    const ang = composeAngle + fieldRot(px, py) * fieldAngleMix;
+    const half = fitHalf(px, py, ang, baseLen * 0.5 * sizeFactor());
+    oil.line(px - Math.cos(ang) * half, py - Math.sin(ang) * half,
+             px + Math.cos(ang) * half, py + Math.sin(ang) * half);
+  }
+
+  // Serpentine mark that bends along the flow — used for the modulation register.
+  function markCurved(cx0, cy0, baseLen, baseW, moodBias) {
+    const cx = clampPt(cx0, xMax), cy = clampPt(cy0, yMax);
+    const fv = fieldVal(cx, cy);
+    const color = pickColorField(m, Math.min(1, moodT + moodBias), bgL, fv, rng);
+    oil.stroke(color[0], color[1], color[2]);
+    setWidth(baseW, fv);
+    const ang = composeAngle + fieldRot(cx, cy) * fieldAngleMix;
+    const len = baseLen * sizeFactor();
+    const segments = 3 + Math.floor(curvatureMul * 3);
+    const segLen = len / segments;
+    let x = cx - Math.cos(ang) * len / 2, y = cy - Math.sin(ang) * len / 2;
+    let curA = ang;
+    const pts = [{ x: clampPt(x, xMax), y: clampPt(y, yMax) }];
+    for (let s = 0; s < segments; s++) {
+      let dA = fieldRot(x, y) - curA;
+      while (dA > Math.PI)  dA -= 2 * Math.PI;
+      while (dA < -Math.PI) dA += 2 * Math.PI;
+      curA += dA * curvatureMul * 0.18 + (rng() - 0.5) * 0.35 * jitterAmp;
+      x += Math.cos(curA) * segLen; y += Math.sin(curA) * segLen;
+      pts.push({ x: clampPt(x, xMax), y: clampPt(y, yMax) });
+    }
+    for (let s = 0; s < pts.length - 1; s++)
+      oil.line(pts[s].x, pts[s].y, pts[s+1].x, pts[s+1].y);
+  }
+
+  // === REGISTER 1 — FOUNDATION: broad grounds, laid first ===
+  oil.pick('flatLarge');
+  for (const c of innerCloud(nLarge, 7, placeX(), placeY())) {
+    const [wx, wy] = warpVec(c.x, c.y, warpAmp);
+    markStraight(c.x + wx, c.y + wy, lenLarge, wLarge, 0);
+  }
+
+  // === REGISTER 2 — MODULATION: waking gestures, curved ===
+  const medHx = placeX(), medHy = placeY();
+  for (let i = 0; i < nMedium; i++) {
+    oil.pick(i % 2 === 0 ? 'filbertLarge' : 'filbertMedium');
+    const c = innerCloud(1, 1019 + i, medHx, medHy)[0];
+    const [wx, wy] = warpVec(c.x, c.y, warpAmp);
+    markCurved(c.x + wx, c.y + wy, lenMedium, wMedium, 0);
+  }
+
+  // === REGISTER 3 — TREMOR: the agitation swarm, small and sharp ===
+  oil.pick('knifeSmall');
+  for (const c of innerCloud(nSmall, 5003, xMax * 0.99, yMax * 0.99)) {
+    const jx = (rng() - 0.5) * minDim * 0.04 * jitterAmp;
+    const jy = (rng() - 0.5) * minDim * 0.04 * jitterAmp;
+    markStraight(c.x + jx, c.y + jy, lenSmall, wSmall, 0);
+  }
+
+  // === DRIPS & SPLATTERS — physical exertion thrown onto the surface ===
   oil.pick('knifeSmall');
   for (let i = 0; i < splatterCount; i++) {
-    // Positions pseudo-random (seeded by body) — splatters are physical scatter.
-    const px = (rng() - 0.5) * W * spreadMul * 1.05;
-    const py = (rng() - 0.5) * H * spreadMul * 1.05;
+    const px = clampPt((rng() - 0.5) * 2 * xMax * 0.92, xMax);
+    const py = clampPt((rng() - 0.5) * 2 * yMax * 0.92, yMax);
     const fv = fieldVal(px, py);
     const color = pickColorField(m, moodT, bgL, fv, rng);
     oil.stroke(color[0], color[1], color[2]);
-    oil.strokeWeight(2 + Math.abs(fv) * 5);
-
-    // Trail follows local flow so drips read as a continuation of the field.
+    oil.strokeWeight((2 + Math.abs(fv) * 5) * wScale);
     const tangle = fieldRot(px, py);
-    const tlen = 3 + rng() * 18;
-    oil.line(px, py, px + Math.cos(tangle) * tlen, py + Math.sin(tangle) * tlen);
-
-    const nSpatter = 1 + Math.floor(rng() * 4);
+    const tlen = 3 + rng() * 16;
+    oil.line(px, py, clampPt(px + Math.cos(tangle) * tlen, xMax), clampPt(py + Math.sin(tangle) * tlen, yMax));
+    const nSpatter = 1 + Math.floor(rng() * 3);
     for (let s = 0; s < nSpatter; s++) {
       const sa = tangle + (rng() - 0.5) * 1.6;
-      const sd = 4 + rng() * 25;
-      const ox = px + Math.cos(sa) * sd;
-      const oy = py + Math.sin(sa) * sd;
-      oil.line(ox, oy, ox + (rng() - 0.5) * 4, oy + (rng() - 0.5) * 4);
+      const sd = 4 + rng() * 22;
+      const ox = clampPt(px + Math.cos(sa) * sd, xMax);
+      const oy = clampPt(py + Math.sin(sa) * sd, yMax);
+      oil.line(ox, oy, clampPt(ox + (rng() - 0.5) * 4, xMax), clampPt(oy + (rng() - 0.5) * 4, yMax));
     }
   }
 
-  // === PHASE 4: IMPASTO ACCENTS AT FIELD PEAKS ===
-  // Sample a Halton cloud and pick top-k by fractal field value — the
-  // brightest moments of the day. With a multi-octave field and a non-grid
-  // candidate cloud, peaks are neither evenly spaced nor lattice-aligned.
+  // === IMPASTO ACCENTS — quick sleep onset: immediate, thick, confident dabs ===
   oil.pick('impasto');
-  const impastoCount = 3 + Math.floor(m.workoutIntensity * 0.6 + (1 - m.latency) * 5);
-  const candCloud = haltonCloud(Math.max(impastoCount * 12, 80), 0.85, 2999);
-  const ranked = candCloud.pts
-    .map(c => ({ c, f: fieldVal(c.x, c.y) }))
-    .sort((a, b) => b.f - a.f)
-    .slice(0, impastoCount);
-  for (const { c, f: fv } of ranked) {
-    const dv = detailVal(c.x, c.y);
-    const color = pickColorField(m, Math.min(1, moodT + 0.15), bgL, fv, rng);
-    oil.stroke(color[0], color[1], color[2]);
-    const weightMod = 0.85 + 0.4 * (0.5 - 0.5 * dv);
-    oil.strokeWeight(baseWeight * (1.2 + Math.abs(fv) * 0.8) * weightMod);
-    const localAng = fieldRot(c.x, c.y);
-    const angle = composeAngle + localAng * fieldAngleMix;
-    const lenMod = 0.75 + 0.5 * (0.5 + 0.5 * dv);
-    const len = baseLen * (0.45 + Math.abs(fv) * 0.55) * lenMod;
-    oil.line(
-      c.x - Math.cos(angle) * len / 2, c.y - Math.sin(angle) * len / 2,
-      c.x + Math.cos(angle) * len / 2, c.y + Math.sin(angle) * len / 2
-    );
-  }
-
-  // === PHASE 5: RESTLESS NIGHT NOISE — edge scatter ===
-  if (m.restless > 0.6) {
-    oil.pick('knifeSmall');
-    const noise = Math.floor(m.restless * 40);
-    for (let i = 0; i < noise; i++) {
-      const px = (rng() - 0.5) * W * 1.1;
-      const py = (rng() - 0.5) * H * 1.1;
-      const fv = fieldVal(px, py);
-      const color = pickColorField(m, moodT, bgL, fv, rng);
-      oil.stroke(color[0], color[1], color[2]);
-      oil.strokeWeight(1 + rng() * 3);
-      oil.line(px, py, px + (rng() - 0.5) * 8, py + (rng() - 0.5) * 8);
-    }
+  const impastoCount = 3 + Math.floor(m.workoutIntensity * 0.6 + (1 - m.latency) * 6);
+  const cand = innerCloud(Math.max(impastoCount * 12, 80), 2999, xMax * 0.88, yMax * 0.88);
+  const ranked = cand.map(c => ({ c, f: fieldVal(c.x, c.y) }))
+                     .sort((a, b) => b.f - a.f)
+                     .slice(0, impastoCount);
+  for (const { c } of ranked) {
+    markStraight(c.x, c.y, lenLarge * 0.5, wLarge * 1.1, 0.15);
   }
 
   oil.flush();
@@ -546,9 +555,11 @@ function paintDay(p, day, data, W, H) {
   return {
     m, moodT,
     params: {
-      composeAngle, freqX, freqY,
-      baseLen, lengthVariance, baseWeight, curvatureMul,
-      layers, baseStrokeCount, splatterCount,
+      composeAngle, freqX, freqY, sizeVar, recovery, agitation,
+      nLarge, lenLarge, wLarge,
+      nMedium, lenMedium, wMedium,
+      nSmall, lenSmall, wSmall,
+      curvatureMul, splatterCount,
     },
   };
 }

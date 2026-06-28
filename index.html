@@ -287,26 +287,34 @@
       <p>The sensor tracks the body during sleep and activity. From each day, the system reads: readiness score, sleep score, heart rate variability, resting heart rate, deep and REM sleep percentage, sleep efficiency, onset latency, restless periods, body temperature deviation, and workout intensity and frequency.</p>
 
       <h3>Mood Index</h3>
-      <p>Three core metrics — readiness, sleep quality, and HRV — are averaged into a single value between 0 and 1. This index drives the whole composition: it shifts the boundary between the two palettes across the canvas, sets stroke density and layer count, and tilts the painting's axis. A high value opens the field to the bright palette (warm, airy); a low value sinks it into deep wine, bordeaux, and near-black. The boundary is spatial, not random — it moves with the body across the surface.</p>
+      <p>Three core metrics — readiness, sleep quality, and HRV — are averaged into a single value between 0 and 1. This index sets the painting's overall key: it moves the boundary between the two palettes across the surface, governs how dense the field becomes, and tilts the whole composition's axis. A high value opens the field to the bright palette (warm, airy); a low value sinks it into deep wine, bordeaux, and near-black. The boundary is spatial, not random — it travels with the body across the canvas.</p>
+
+      <h3>Three Registers</h3>
+      <p>The body never speaks in one voice. At any moment the deep, slow systems and the fast, surface ones run at once, and the painting keeps them as three distinct scales of mark. The <em>foundation</em> — a few broad grounds — carries the recovered, parasympathetic body: deep sleep and heart-rate variability. The <em>modulation</em> — the curved middle gestures — is the waking self: readiness and physical activity. The <em>tremor</em> — a swarm of small, sharp marks — is the agitated surface: restlessness, breathing rate, an elevated resting pulse. A calm, recovered day is carried by large, confident strokes; a depleted, stressed one fragments into many small nervous ones.</p>
+
+      <h3>Variance is HRV</h3>
+      <p>Within every register the marks differ in length and width. The width of that spread is heart-rate variability itself: an adaptive, high-HRV day scatters marks across a wide range of sizes; a rigid, low-HRV day collapses them toward a single anxious scale. The literal variability of the heart becomes the visual variability of the hand.</p>
 
       <h3>Biometric-to-Visual Mapping</h3>
       <table>
         <tr><th>Body Signal</th><th>Visual Parameter</th></tr>
-        <tr><td>Readiness + Sleep + HRV</td><td>Palette probability, stroke density, layer count</td></tr>
-        <tr><td>Resting heart rate</td><td>Stroke length and weight</td></tr>
-        <tr><td>Heart rate variability</td><td>Spread between shortest and longest strokes</td></tr>
-        <tr><td>REM sleep</td><td>Curvature of gestural marks</td></tr>
+        <tr><td>Readiness + Sleep + HRV</td><td>Overall key: palette boundary, density, axis tilt</td></tr>
+        <tr><td>Deep sleep + HRV + Sleep</td><td>Foundation register — count of broad grounds</td></tr>
+        <tr><td>Readiness + Workout</td><td>Modulation register — count of waking gestures</td></tr>
+        <tr><td>Restless + Breath + Pulse</td><td>Tremor register — count of small sharp marks</td></tr>
+        <tr><td>Heart rate variability</td><td>Size variance within every register</td></tr>
+        <tr><td>Resting heart rate</td><td>Gesture length (calm heart → longer flow) and weight</td></tr>
+        <tr><td>Total sleep</td><td>Scale of the foundation grounds</td></tr>
+        <tr><td>REM sleep</td><td>Curvature of the gestural marks</td></tr>
         <tr><td>Deep sleep</td><td>Tonal contrast</td></tr>
-        <tr><td>Sleep quality</td><td>Color saturation</td></tr>
-        <tr><td>Sleep efficiency</td><td>Compositional spread</td></tr>
+        <tr><td>Sleep quality</td><td>Colour saturation</td></tr>
         <tr><td>Sleep onset latency</td><td>Impasto accent count</td></tr>
         <tr><td>Body temperature</td><td>Hue rotation</td></tr>
-        <tr><td>Restless periods</td><td>Edge noise layer</td></tr>
         <tr><td>Workout intensity</td><td>Drip trails and splatters</td></tr>
       </table>
 
       <h3>Construction</h3>
-      <p>Each painting is built in five sequential passes using simulated oil brushes. Broad underpainting sweeps establish the tonal field. Curved gestural strokes build up in layers — two on well-rested days, six on exhausted ones. Drip trails and micro-splatters accumulate from physical activity. Thick impasto accents mark quick sleep onset. On restless nights, a final scatter of fine marks appears at the edges.</p>
+      <p>Each painting is built in layered passes with simulated oil brushes. The foundation register is laid first as broad grounds, then the modulation register builds curved gestures over it, then the tremor swarm settles across the surface. Physical activity is thrown on as drip trails and splatters; quick sleep onset leaves a few thick, immediate impasto accents at the field's peaks. Every mark is held inside the frame, and a calculated margin is always left bare — the painting breathes.</p>
 
     </div>
   </div>
@@ -483,7 +491,11 @@
           if (!pendingRepaint || !DATA) return;
           pendingRepaint = false;
           const day = DATA.days[currentIdx];
-          const result = OuraPainter.paintDay(p, day, DATA, CANVAS_W, CANVAS_H);
+          // p5.oil draws in device-pixel space (the framebuffer), so the usable
+          // coordinate range is the buffer size, not the logical canvas size.
+          // Pass the real buffer dimensions so paint fills the whole canvas.
+          const pd = p.pixelDensity ? p.pixelDensity() : 1;
+          const result = OuraPainter.paintDay(p, day, DATA, CANVAS_W * pd, CANVAS_H * pd);
           renderMetrics(result);
         };
       });
